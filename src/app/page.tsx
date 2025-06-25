@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
 import { Upload, Download, ImageIcon, AlertCircle, X, FileImage, Trash2 } from "lucide-react"
+import { Analytics } from "@vercel/analytics/next"
 
 interface ConversionResult {
   blob: Blob
