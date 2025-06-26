@@ -1,34 +1,21 @@
 "use client"
 
 import type React from "react"
-
-import { useState, useCallback, useRef } from "react"
+import { useState, useCallback, useRef, useEffect } from "react"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Progress } from "@/components/ui/progress"
+import { Card } from "@/components/ui/card"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Badge } from "@/components/ui/badge"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Separator } from "@/components/ui/separator"
-import { Upload, Download, ImageIcon, AlertCircle, X, FileImage, Trash2 } from "lucide-react"
-
-
-interface ConversionResult {
-  blob: Blob
-  url: string
-  originalSize: number
-  convertedSize: number
-  compressionRatio: number
-  fileName: string
-}
+import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select"
+import { Upload, Download, AlertCircle, X, FileImage, Check } from "lucide-react"
+import { Sidebar } from "@/components/ui/sidebar"
+import { RightPanel, HistoryItem } from "@/components/ui/right-panel"
 
 interface FileItem {
-  file: File
   id: string
+  file: File
   status: "pending" | "converting" | "completed" | "error"
-  result?: ConversionResult
+  result?: Blob
   error?: string
-  progress: number
 }
 
 type OutputFormat = "webp" | "avif" | "jpeg" | "png"
@@ -40,74 +27,122 @@ const formatOptions = [
   { value: "png" as OutputFormat, label: "PNG", description: "Lossless, supports transparency" },
 ]
 
+const getOutputFileName = (originalName: string, outputFormat: OutputFormat) => {
+  const nameWithoutExtension = originalName.split('.')[0]
+  return `${nameWithoutExtension}.${outputFormat}`
+}
+
+const formatFileSize = (bytes: number): string => {
+  if (bytes === 0) return "0 B"
+  const k = 1024
+  const sizes = ["B", "KB", "MB", "GB", "TB"]
+  const i = Math.floor(Math.log(bytes) / Math.log(k))
+  return Number.parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i]
+}
+
+const HISTORY_STORAGE_KEY = 'image_converter_history'
+
+interface StoredHistoryItem {
+  id: string
+  originalName: string
+  convertedName: string
+  originalSize: string
+  convertedSize: string
+  format: string
+  timestamp: string
+  blob?: Blob
+}
+
 export default function MultiFormatConverter() {
   const [selectedFiles, setSelectedFiles] = useState<FileItem[]>([])
-  const [outputFormat, setOutputFormat] = useState<OutputFormat>("webp")
+  const [outputFormat, setOutputFormat] = useState<OutputFormat>("jpeg")
   const [isConverting, setIsConverting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [dragActive, setDragActive] = useState(false)
+  const [history, setHistory] = useState<HistoryItem[]>(() => {
+    if (typeof window !== 'undefined') {
+      const savedHistory = localStorage.getItem(HISTORY_STORAGE_KEY)
+      if (savedHistory) {
+        try {
+          const parsedHistory = JSON.parse(savedHistory) as StoredHistoryItem[]
+          return parsedHistory.map(item => ({
+            ...item,
+            timestamp: new Date(item.timestamp),
+            downloadUrl: item.blob ? URL.createObjectURL(item.blob) : undefined
+          }))
+        } catch (e) {
+          console.error('Failed to parse history from localStorage:', e)
+          return []
+        }
+      }
+    }
+    return []
+  })
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const formatFileSize = (bytes: number): string => {
-    if (bytes === 0) return "0 Bytes"
-    const k = 1024
-    const sizes = ["Bytes", "KB", "MB", "GB"]
-    const i = Math.floor(Math.log(bytes) / Math.log(k))
-    return Number.parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i]
-  }
+  // Save history to localStorage whenever it changes
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const historyToStore = history.map(item => ({
+        id: item.id,
+        originalName: item.originalName,
+        convertedName: item.convertedName,
+        originalSize: item.originalSize,
+        convertedSize: item.convertedSize,
+        format: item.format,
+        timestamp: item.timestamp.toISOString()
+      }))
+      localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(historyToStore))
+    }
+  }, [history])
 
-  const convertImage = useCallback(async (file: File, format: OutputFormat): Promise<ConversionResult> => {
+  const completedFiles = selectedFiles.filter(f => f.status === "completed")
+
+  const convertImage = useCallback(async (file: File, format: OutputFormat): Promise<Blob> => {
     return new Promise((resolve, reject) => {
       const img = new Image()
-      const reader = new FileReader()
-
-      reader.onload = () => {
-        img.src = reader.result as string
-      }
+      const objectUrl = URL.createObjectURL(file)
 
       img.onload = () => {
-        const canvas = document.createElement("canvas")
+        URL.revokeObjectURL(objectUrl)
+        const canvas = document.createElement('canvas')
         canvas.width = img.width
         canvas.height = img.height
-        const ctx = canvas.getContext("2d")
-
+        const ctx = canvas.getContext('2d')
+        
         if (!ctx) {
-          reject(new Error("Failed to get canvas context"))
+          reject(new Error("Could not get canvas context"))
           return
         }
 
-        img.crossOrigin = "anonymous"
         ctx.drawImage(img, 0, 0)
-
-        const mimeType = `image/${format}`
-        const quality = format === "png" ? undefined : 0.9
-
+        
+        // Handle JPEG format specifically
+        const mimeType = format === 'jpeg' ? 'image/jpeg' : `image/${format}`
+        
         canvas.toBlob(
           (blob) => {
             if (blob) {
-              const url = URL.createObjectURL(blob)
-              const compressionRatio = ((file.size - blob.size) / file.size) * 100
-              const fileName = `${file.name.split(".")[0]}.${format}`
-              resolve({
-                blob,
-                url,
-                originalSize: file.size,
-                convertedSize: blob.size,
-                compressionRatio: Math.max(0, compressionRatio),
-                fileName,
+              // Create a new blob with the correct MIME type and extension
+              const convertedBlob = new Blob([blob], { 
+                type: mimeType 
               })
+              resolve(convertedBlob)
             } else {
               reject(new Error("Conversion failed"))
             }
           },
           mimeType,
-          quality,
+          0.9
         )
       }
 
-      img.onerror = () => reject(new Error("Failed to load image"))
-      reader.onerror = () => reject(new Error("Failed to read file"))
-      reader.readAsDataURL(file)
+      img.onerror = () => {
+        URL.revokeObjectURL(objectUrl)
+        reject(new Error("Failed to load image"))
+      }
+
+      img.src = objectUrl
     })
   }, [])
 
@@ -124,7 +159,6 @@ export default function MultiFormatConverter() {
         file,
         id: Math.random().toString(36).substr(2, 9),
         status: "pending",
-        progress: 0,
       }
       validFiles.push(fileItem)
     })
@@ -164,278 +198,346 @@ export default function MultiFormatConverter() {
     [handleFilesSelect],
   )
 
-  const removeFile = (id: string) => {
-    setSelectedFiles((prev) => prev.filter((item) => item.id !== id))
+  const addToHistory = useCallback((fileItem: FileItem) => {
+    if (fileItem.status !== "completed" || !fileItem.result) return
+
+    const historyItem: HistoryItem = {
+      id: fileItem.id,
+      originalName: fileItem.file.name,
+      convertedName: getOutputFileName(fileItem.file.name, outputFormat),
+      originalSize: formatFileSize(fileItem.file.size),
+      convertedSize: formatFileSize(fileItem.result.size),
+      format: outputFormat.toUpperCase(),
+      timestamp: new Date(),
+      downloadUrl: URL.createObjectURL(fileItem.result)
+    }
+
+    setHistory(prev => [historyItem, ...prev])
+  }, [outputFormat])
+
+  const handleHistoryDownload = useCallback((item: HistoryItem) => {
+    if (!item.downloadUrl) {
+      setError('Download URL not available')
+      return
+    }
+
+    const a = document.createElement('a')
+    a.href = item.downloadUrl
+    a.download = item.convertedName
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+  }, [])
+
+  const handleHistoryDelete = useCallback((id: string) => {
+    setHistory(prev => {
+      const itemToRemove = prev.find(item => item.id === id)
+      if (itemToRemove?.downloadUrl) {
+        URL.revokeObjectURL(itemToRemove.downloadUrl)
+      }
+      return prev.filter(item => item.id !== id)
+    })
+  }, [])
+
+  // Clean up URLs when component unmounts
+  useEffect(() => {
+    return () => {
+      history.forEach(item => {
+        if (item.downloadUrl) {
+          URL.revokeObjectURL(item.downloadUrl)
+        }
+      })
+    }
+  }, [])
+
+  const handleConvertSingle = async (fileItem: FileItem) => {
+    if (fileItem.status === "converting" || fileItem.status === "completed") return
+    setError(null)
+
+    try {
+      fileItem.status = "converting"
+      setSelectedFiles([...selectedFiles])
+
+      const result = await convertImage(fileItem.file, outputFormat)
+      fileItem.result = result
+      fileItem.status = "completed"
+      setSelectedFiles([...selectedFiles])
+      addToHistory(fileItem)
+    } catch (err) {
+      fileItem.error = err instanceof Error ? err.message : "Conversion failed"
+      fileItem.status = "error"
+      setSelectedFiles([...selectedFiles])
+    }
   }
 
   const handleConvertAll = async () => {
-    if (selectedFiles.length === 0) return
-
+    if (isConverting) return
     setIsConverting(true)
     setError(null)
 
     const updatedFiles = [...selectedFiles]
-
-    for (let i = 0; i < updatedFiles.length; i++) {
-      const fileItem = updatedFiles[i]
-
+    
+    for (const fileItem of updatedFiles) {
       if (fileItem.status === "completed") continue
 
-      // Update status to converting
-      fileItem.status = "converting"
-      fileItem.progress = 0
-      setSelectedFiles([...updatedFiles])
-
-      // Simulate progress
-      const progressInterval = setInterval(() => {
-        fileItem.progress = Math.min(fileItem.progress + 10, 90)
-        setSelectedFiles([...updatedFiles])
-      }, 100)
-
       try {
+        fileItem.status = "converting"
+        setSelectedFiles([...updatedFiles])
+
         const result = await convertImage(fileItem.file, outputFormat)
         fileItem.result = result
         fileItem.status = "completed"
-        fileItem.progress = 100
+        addToHistory(fileItem)
       } catch (err) {
         fileItem.error = err instanceof Error ? err.message : "Conversion failed"
         fileItem.status = "error"
-        fileItem.progress = 0
-      } finally {
-        clearInterval(progressInterval)
-        setSelectedFiles([...updatedFiles])
       }
+      setSelectedFiles([...updatedFiles])
     }
 
     setIsConverting(false)
   }
 
-  const handleDownload = (fileItem: FileItem) => {
-    if (!fileItem.result) return
-
-    const link = document.createElement("a")
-    link.href = fileItem.result.url
-    link.download = fileItem.result.fileName
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-  }
-
-  const handleDownloadAll = () => {
-    selectedFiles.forEach((fileItem) => {
-      if (fileItem.result) {
-        setTimeout(() => handleDownload(fileItem), 100)
-      }
-    })
-  }
-
-  const resetConverter = () => {
-    setSelectedFiles([])
-    setError(null)
-    if (fileInputRef.current) {
-      fileInputRef.current.value = ""
+  const handleDownload = async (fileItem: FileItem) => {
+    if (fileItem.status !== "completed" || !fileItem.result) {
+      console.error("Cannot download: file not completed or no result available")
+      return
+    }
+    
+    try {
+      const mimeType = outputFormat === 'jpeg' ? 'image/jpeg' : `image/${outputFormat}`
+      const blobCopy = new Blob([fileItem.result], { type: mimeType })
+      const url = URL.createObjectURL(blobCopy)
+      const a = document.createElement('a')
+      a.href = url
+      const fileName = getOutputFileName(fileItem.file.name, outputFormat)
+      a.download = fileName
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    } catch (error) {
+      console.error("Download failed:", error)
+      setError("Failed to download file")
     }
   }
 
-  const completedFiles = selectedFiles.filter((f) => f.status === "completed")
-  const totalSavings = completedFiles.reduce((acc, f) => acc + (f.result?.compressionRatio || 0), 0)
+  const handleDownloadAll = async () => {
+    if (completedFiles.length === 0) {
+      console.error("No completed files to download")
+      return
+    }
+
+    try {
+      if (completedFiles.length > 1) {
+        const JSZipModule = await import('jszip')
+        const zip = new JSZipModule.default()
+        
+        for (const fileItem of completedFiles) {
+          if (fileItem.result) {
+            const mimeType = outputFormat === 'jpeg' ? 'image/jpeg' : `image/${outputFormat}`
+            const blobCopy = new Blob([fileItem.result], { type: mimeType })
+            const fileName = getOutputFileName(fileItem.file.name, outputFormat)
+            zip.file(fileName, blobCopy)
+          }
+        }
+
+        const content = await zip.generateAsync({ type: "blob" })
+        const url = URL.createObjectURL(content)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `converted_images.zip`
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+        URL.revokeObjectURL(url)
+      } else if (completedFiles.length === 1) {
+        await handleDownload(completedFiles[0])
+      }
+    } catch (error) {
+      console.error("Download all failed:", error)
+      setError("Failed to process download")
+    }
+  }
+
+  const removeFile = (id: string) => {
+    setSelectedFiles(prev => {
+      const fileToRemove = prev.find(f => f.id === id)
+      if (fileToRemove?.result) {
+        URL.revokeObjectURL(URL.createObjectURL(fileToRemove.result))
+      }
+      return prev.filter(f => f.id !== id)
+    })
+  }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
-      <div className="max-w-6xl mx-auto">
-        <div className="text-center mb-8">
-          <h1 className="text-4xl font-bold text-gray-900 mb-2">Multi-Format Image Converter</h1>
-          <p className="text-lg text-gray-600">Convert your images to WebP, AVIF, JPEG, or PNG format</p>
+    <div className="flex min-h-screen">
+      <Sidebar />
+      <main className="flex-1 p-8">
+        <div className="mb-8">
+          <h1 className="text-4xl font-bold mb-2">Conversion Queue</h1>
+          <p className="text-gray-500">Track the progress of your image conversions</p>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-          <Card className="lg:col-span-2">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <ImageIcon className="h-5 w-5" />
-                Upload Images
-              </CardTitle>
-              <CardDescription>Select multiple image files or drag and drop them here</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div
-                className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
-                  dragActive ? "border-blue-500 bg-blue-50" : "border-gray-300 hover:border-gray-400"
-                }`}
-                onDragEnter={handleDrag}
-                onDragLeave={handleDrag}
-                onDragOver={handleDrag}
-                onDrop={handleDrop}
-              >
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  onChange={handleFileInputChange}
-                  className="hidden"
-                  id="file-input"
-                />
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-4">
+            <div className="text-gray-600">
+              Files: <span className="font-semibold">{selectedFiles.length}</span>
+            </div>
+            <div className="text-gray-600">
+              Completed: <span className="font-semibold text-green-600">{completedFiles.length}</span>
+            </div>
+          </div>
 
-                <div className="space-y-4">
-                  <Upload className="h-12 w-12 text-gray-400 mx-auto" />
-                  <div>
-                    <label
-                      htmlFor="file-input"
-                      className="cursor-pointer text-blue-600 hover:text-blue-500 font-medium"
-                    >
-                      Click to upload
-                    </label>
-                    <span className="text-gray-600"> or drag and drop</span>
-                  </div>
-                  <p className="text-sm text-gray-500">PNG, JPG, GIF up to 10MB each</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+          <div className="flex items-center gap-4">
+            <Select value={outputFormat} onValueChange={(value: OutputFormat) => setOutputFormat(value)}>
+              <SelectTrigger className="w-[180px]">
+                {formatOptions.find(opt => opt.value === outputFormat)?.label || "Select format"}
+              </SelectTrigger>
+              <SelectContent>
+                {formatOptions.map((format) => (
+                  <SelectItem key={format.value} value={format.value}>
+                    {format.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Output Format</CardTitle>
-              <CardDescription>Choose the format to convert your images to</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <Select value={outputFormat} onValueChange={(value: OutputFormat) => setOutputFormat(value)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {formatOptions.map((option) => (
-                    <SelectItem key={option.value} value={option.value}>
-                      <div>
-                        <div className="font-medium">{option.label}</div>
-                        <div className="text-sm text-gray-500">{option.description}</div>
-                      </div>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-
-              {selectedFiles.length > 0 && (
-                <>
-                  <Separator />
-                  <div className="space-y-2">
-                    <div className="flex justify-between text-sm">
-                      <span>Files selected:</span>
-                      <span className="font-medium">{selectedFiles.length}</span>
-                    </div>
-                    <div className="flex justify-between text-sm">
-                      <span>Completed:</span>
-                      <span className="font-medium text-green-600">{completedFiles.length}</span>
-                    </div>
-                    {completedFiles.length > 0 && (
-                      <div className="flex justify-between text-sm">
-                        <span>Avg. savings:</span>
-                        <span className="font-medium text-green-600">
-                          {(totalSavings / completedFiles.length).toFixed(1)}%
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                  <div className="flex gap-2">
-                    <Button
-                      onClick={handleConvertAll}
-                      disabled={isConverting}
-                      className="flex-1 bg-blue-600 hover:bg-blue-700"
-                    >
-                      {isConverting ? "Converting..." : `Convert All to ${outputFormat.toUpperCase()}`}
-                    </Button>
-                    <Button variant="outline" size="icon" onClick={resetConverter}>
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </>
-              )}
-            </CardContent>
-          </Card>
+            <Button
+              onClick={handleConvertAll}
+              disabled={isConverting || selectedFiles.length === 0}
+              className="bg-blue-600 hover:bg-blue-700"
+            >
+              {isConverting ? "Converting..." : "Convert All"}
+            </Button>
+          </div>
         </div>
 
         {error && (
-          <Alert className="mb-6 border-red-200 bg-red-50">
-            <AlertCircle className="h-4 w-4 text-red-600" />
-            <AlertDescription className="text-red-800">{error}</AlertDescription>
+          <Alert variant="destructive" className="mb-6">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>{error}</AlertDescription>
           </Alert>
         )}
 
+        <div
+          className={`border-2 border-dashed rounded-lg p-8 mb-6 text-center ${
+            dragActive ? "border-blue-500 bg-blue-50" : "border-gray-300"
+          }`}
+          onDragEnter={handleDrag}
+          onDragLeave={handleDrag}
+          onDragOver={handleDrag}
+          onDrop={handleDrop}
+        >
+          <div className="flex flex-col items-center gap-4">
+            <Upload className="w-12 h-12 text-gray-400" />
+            <div>
+              <p className="text-xl font-semibold mb-2">Drop your images here</p>
+              <p className="text-gray-500">or</p>
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                accept="image/*"
+                onChange={handleFileInputChange}
+                className="hidden"
+              />
+              <Button
+                variant="outline"
+                className="mt-2"
+                onClick={() => fileInputRef.current?.click()}
+              >
+                Browse Files
+              </Button>
+            </div>
+          </div>
+        </div>
+
         {selectedFiles.length > 0 && (
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle>Conversion Queue</CardTitle>
-                  <CardDescription>Track the progress of your image conversions</CardDescription>
-                </div>
-                {completedFiles.length > 0 && (
-                  <Button onClick={handleDownloadAll} variant="outline">
-                    <Download className="h-4 w-4 mr-2" />
-                    Download All ({completedFiles.length})
-                  </Button>
-                )}
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                {selectedFiles.map((fileItem) => (
-                  <div key={fileItem.id} className="border rounded-lg p-4">
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="flex items-center gap-3">
-                        <FileImage className="h-5 w-5 text-gray-500" />
-                        <div>
-                          <p className="font-medium text-sm">{fileItem.file.name}</p>
-                          <p className="text-xs text-gray-500">{formatFileSize(fileItem.file.size)}</p>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {fileItem.status === "completed" && fileItem.result && (
-                          <>
-                            <Badge className="bg-green-100 text-green-800 hover:bg-green-100">
-                              -{fileItem.result.compressionRatio.toFixed(1)}%
-                            </Badge>
-                            <Button size="sm" onClick={() => handleDownload(fileItem)}>
-                              <Download className="h-3 w-3 mr-1" />
-                              Download
-                            </Button>
-                          </>
-                        )}
-                        {fileItem.status === "error" && <Badge variant="destructive">Error</Badge>}
-                        {fileItem.status === "pending" && (
-                          <Button variant="ghost" size="sm" onClick={() => removeFile(fileItem.id)}>
-                            <X className="h-4 w-4" />
-                          </Button>
-                        )}
-                      </div>
+          <Card className="overflow-hidden">
+            <div className="divide-y">
+              {selectedFiles.map((fileItem) => (
+                <div
+                  key={fileItem.id}
+                  className="flex items-center justify-between p-4 hover:bg-gray-50"
+                >
+                  <div className="flex items-center gap-3">
+                    <FileImage className="w-8 h-8 text-blue-500" />
+                    <div>
+                      <p className="font-medium">
+                        {fileItem.status === "completed" 
+                          ? getOutputFileName(fileItem.file.name, outputFormat)
+                          : fileItem.file.name}
+                      </p>
+                      <p className="text-sm text-gray-500">
+                        {formatFileSize(fileItem.file.size)}
+                      </p>
                     </div>
-
-                    {fileItem.status === "converting" && (
-                      <div className="space-y-2">
-                        <Progress value={fileItem.progress} className="w-full" />
-                        <p className="text-xs text-center text-gray-600">Converting...</p>
-                      </div>
-                    )}
-
-                    {fileItem.status === "completed" && fileItem.result && (
-                      <div className="mt-3 flex justify-center">
-                        <img
-                          src={fileItem.result.url || "/placeholder.svg"}
-                          alt={`Converted ${fileItem.file.name}`}
-                          className="max-w-32 max-h-32 rounded border object-cover"
-                        />
-                      </div>
-                    )}
-
-                    {fileItem.status === "error" && <p className="text-sm text-red-600 mt-2">{fileItem.error}</p>}
                   </div>
-                ))}
-              </div>
-            </CardContent>
+
+                  <div className="flex items-center gap-4">
+                    {fileItem.status === "converting" && (
+                      <div className="text-blue-600">Converting...</div>
+                    )}
+                    {fileItem.status === "completed" && (
+                      <>
+                        <Check className="w-5 h-5 text-green-600" />
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleDownload(fileItem)}
+                          className="hover:bg-gray-100"
+                        >
+                          <Download className="w-5 h-5" />
+                        </Button>
+                      </>
+                    )}
+                    {fileItem.status === "error" && (
+                      <div className="text-red-600">{fileItem.error}</div>
+                    )}
+                    {fileItem.status === "pending" && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleConvertSingle(fileItem)}
+                        className="mr-2"
+                      >
+                        Convert
+                      </Button>
+                    )}
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => removeFile(fileItem.id)}
+                      className="hover:bg-gray-100"
+                    >
+                      <X className="w-5 h-5" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
           </Card>
         )}
-      </div>
+
+        {completedFiles.length > 0 && (
+          <div className="mt-6 flex justify-end">
+            <Button
+              variant="outline"
+              onClick={handleDownloadAll}
+              className="flex items-center gap-2"
+            >
+              <Download className="w-5 h-5" />
+              Download All
+            </Button>
+          </div>
+        )}
+      </main>
+      <RightPanel 
+        historyItems={history}
+        onDownload={handleHistoryDownload}
+        onDelete={handleHistoryDelete}
+      />
     </div>
   )
 }
