@@ -1,37 +1,33 @@
 "use client"
 
 import type React from "react"
-
 import { useState, useCallback, useRef } from "react"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Progress } from "@/components/ui/progress"
+import { Card } from "@/components/ui/card"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Badge } from "@/components/ui/badge"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Separator } from "@/components/ui/separator"
-import { Upload, Download, ImageIcon, AlertCircle, X, FileImage, Trash2 } from "lucide-react"
-
-
-interface ConversionResult {
-  blob: Blob
-  url: string
-  originalSize: number
-  convertedSize: number
-  compressionRatio: number
-  fileName: string
-}
+import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select"
+import { Upload, Download, AlertCircle, X, FileImage, MoreVertical, Check } from "lucide-react"
+import { Sidebar } from "@/components/ui/sidebar"
+import { RightPanel } from "@/components/ui/right-panel"
 
 interface FileItem {
-  file: File
   id: string
+  file: File
   status: "pending" | "converting" | "completed" | "error"
-  result?: ConversionResult
+  result?: Blob
   error?: string
-  progress: number
 }
 
 type OutputFormat = "webp" | "avif" | "jpeg" | "png"
+
+const dummyHistoryItems = [
+  { name: "Illustr_3485.jpg", size: "3.5 Mb", type: "jpg" as const },
+  { name: "img2045.png", size: "2.1 Mb", type: "png" as const },
+  { name: "icon24.svg", size: "258 Kb", type: "svg" as const },
+  { name: "article.doc", size: "459 Kb", type: "doc" as const },
+  { name: "present19.pdf", size: "3.5 Mb", type: "pdf" as const },
+  { name: "photo1.jpg", size: "7.8 Mb", type: "jpg" as const },
+]
 
 const formatOptions = [
   { value: "webp" as OutputFormat, label: "WebP", description: "Best compression, wide support" },
@@ -39,6 +35,11 @@ const formatOptions = [
   { value: "jpeg" as OutputFormat, label: "JPEG", description: "Universal support, good for photos" },
   { value: "png" as OutputFormat, label: "PNG", description: "Lossless, supports transparency" },
 ]
+
+const getOutputFileName = (originalName: string, outputFormat: OutputFormat) => {
+  const nameWithoutExtension = originalName.split('.')[0]
+  return `${nameWithoutExtension}.${outputFormat.toLowerCase()}`
+}
 
 export default function MultiFormatConverter() {
   const [selectedFiles, setSelectedFiles] = useState<FileItem[]>([])
@@ -56,58 +57,45 @@ export default function MultiFormatConverter() {
     return Number.parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i]
   }
 
-  const convertImage = useCallback(async (file: File, format: OutputFormat): Promise<ConversionResult> => {
+  const completedFiles = selectedFiles.filter(f => f.status === "completed")
+
+  const convertImage = useCallback(async (file: File, format: OutputFormat): Promise<Blob> => {
     return new Promise((resolve, reject) => {
       const img = new Image()
-      const reader = new FileReader()
-
-      reader.onload = () => {
-        img.src = reader.result as string
-      }
+      const objectUrl = URL.createObjectURL(file)
 
       img.onload = () => {
-        const canvas = document.createElement("canvas")
+        URL.revokeObjectURL(objectUrl)
+        const canvas = document.createElement('canvas')
         canvas.width = img.width
         canvas.height = img.height
-        const ctx = canvas.getContext("2d")
-
+        const ctx = canvas.getContext('2d')
+        
         if (!ctx) {
-          reject(new Error("Failed to get canvas context"))
+          reject(new Error("Could not get canvas context"))
           return
         }
 
-        img.crossOrigin = "anonymous"
         ctx.drawImage(img, 0, 0)
-
-        const mimeType = `image/${format}`
-        const quality = format === "png" ? undefined : 0.9
-
         canvas.toBlob(
           (blob) => {
             if (blob) {
-              const url = URL.createObjectURL(blob)
-              const compressionRatio = ((file.size - blob.size) / file.size) * 100
-              const fileName = `${file.name.split(".")[0]}.${format}`
-              resolve({
-                blob,
-                url,
-                originalSize: file.size,
-                convertedSize: blob.size,
-                compressionRatio: Math.max(0, compressionRatio),
-                fileName,
-              })
+              resolve(blob)
             } else {
               reject(new Error("Conversion failed"))
             }
           },
-          mimeType,
-          quality,
+          `image/${format}`,
+          0.9
         )
       }
 
-      img.onerror = () => reject(new Error("Failed to load image"))
-      reader.onerror = () => reject(new Error("Failed to read file"))
-      reader.readAsDataURL(file)
+      img.onerror = () => {
+        URL.revokeObjectURL(objectUrl)
+        reject(new Error("Failed to load image"))
+      }
+
+      img.src = objectUrl
     })
   }, [])
 
@@ -124,7 +112,6 @@ export default function MultiFormatConverter() {
         file,
         id: Math.random().toString(36).substr(2, 9),
         status: "pending",
-        progress: 0,
       }
       validFiles.push(fileItem)
     })
@@ -169,273 +156,288 @@ export default function MultiFormatConverter() {
   }
 
   const handleConvertAll = async () => {
-    if (selectedFiles.length === 0) return
-
+    if (isConverting) return
     setIsConverting(true)
     setError(null)
 
     const updatedFiles = [...selectedFiles]
-
-    for (let i = 0; i < updatedFiles.length; i++) {
-      const fileItem = updatedFiles[i]
-
+    
+    for (const fileItem of updatedFiles) {
       if (fileItem.status === "completed") continue
 
-      // Update status to converting
-      fileItem.status = "converting"
-      fileItem.progress = 0
-      setSelectedFiles([...updatedFiles])
-
-      // Simulate progress
-      const progressInterval = setInterval(() => {
-        fileItem.progress = Math.min(fileItem.progress + 10, 90)
-        setSelectedFiles([...updatedFiles])
-      }, 100)
-
       try {
+        fileItem.status = "converting"
+        setSelectedFiles([...updatedFiles])
+
         const result = await convertImage(fileItem.file, outputFormat)
         fileItem.result = result
         fileItem.status = "completed"
-        fileItem.progress = 100
       } catch (err) {
         fileItem.error = err instanceof Error ? err.message : "Conversion failed"
         fileItem.status = "error"
-        fileItem.progress = 0
-      } finally {
-        clearInterval(progressInterval)
-        setSelectedFiles([...updatedFiles])
       }
+      setSelectedFiles([...updatedFiles])
     }
 
     setIsConverting(false)
   }
 
-  const handleDownload = (fileItem: FileItem) => {
-    if (!fileItem.result) return
-
-    const link = document.createElement("a")
-    link.href = fileItem.result.url
-    link.download = fileItem.result.fileName
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-  }
-
-  const handleDownloadAll = () => {
-    selectedFiles.forEach((fileItem) => {
-      if (fileItem.result) {
-        setTimeout(() => handleDownload(fileItem), 100)
-      }
-    })
-  }
-
-  const resetConverter = () => {
-    setSelectedFiles([])
-    setError(null)
-    if (fileInputRef.current) {
-      fileInputRef.current.value = ""
+  const handleDownload = async (fileItem: FileItem) => {
+    if (fileItem.status !== "completed" || !fileItem.result) {
+      console.error("Cannot download: file not completed or no result available")
+      return
+    }
+    
+    try {
+      const blobCopy = new Blob([fileItem.result], { type: `image/${outputFormat}` })
+      const url = URL.createObjectURL(blobCopy)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = getOutputFileName(fileItem.file.name, outputFormat)
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    } catch (error) {
+      console.error("Download failed:", error)
+      setError("Failed to download file")
     }
   }
 
-  const completedFiles = selectedFiles.filter((f) => f.status === "completed")
-  const totalSavings = completedFiles.reduce((acc, f) => acc + (f.result?.compressionRatio || 0), 0)
+  const handleDownloadAll = async () => {
+    if (completedFiles.length === 0) {
+      console.error("No completed files to download")
+      return
+    }
+
+    try {
+      if (completedFiles.length > 1) {
+        const JSZipModule = await import('jszip')
+        const zip = new JSZipModule.default()
+        
+        for (const fileItem of completedFiles) {
+          if (fileItem.result) {
+            const blobCopy = new Blob([fileItem.result], { type: `image/${outputFormat}` })
+            const fileName = getOutputFileName(fileItem.file.name, outputFormat)
+            zip.file(fileName, blobCopy)
+          }
+        }
+
+        const content = await zip.generateAsync({ type: "blob" })
+        const url = URL.createObjectURL(content)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `converted_images.zip`
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+        URL.revokeObjectURL(url)
+      } else if (completedFiles.length === 1) {
+        await handleDownload(completedFiles[0])
+      }
+    } catch (error) {
+      console.error("Download all failed:", error)
+      setError("Failed to process download")
+    }
+  }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
-      <div className="max-w-6xl mx-auto">
-        <div className="text-center mb-8">
-          <h1 className="text-4xl font-bold text-gray-900 mb-2">Multi-Format Image Converter</h1>
-          <p className="text-lg text-gray-600">Convert your images to WebP, AVIF, JPEG, or PNG format</p>
-        </div>
+    <div className="flex min-h-screen bg-gray-50">
+      <Sidebar 
+        userName="Thea Murray"
+        userEmail="murray86@gmail.com"
+        conversionsLeft={5}
+        totalConversions={20}
+      />
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-          <Card className="lg:col-span-2">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <ImageIcon className="h-5 w-5" />
-                Upload Images
-              </CardTitle>
-              <CardDescription>Select multiple image files or drag and drop them here</CardDescription>
-            </CardHeader>
-            <CardContent>
+      <main className="flex-1 p-8">
+        <div className="max-w-3xl mx-auto">
+          <Card className="bg-white shadow-sm">
+            <div className="p-6">
+              {/* Header */}
+              <div className="flex items-center justify-between mb-8">
+                <h1 className="text-2xl font-semibold">Convert JPG to PDF</h1>
+                <button className="text-gray-500 hover:text-gray-700">
+                  <MoreVertical className="h-5 w-5" />
+                </button>
+              </div>
+
+              {/* Dropzone */}
               <div
-                className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
-                  dragActive ? "border-blue-500 bg-blue-50" : "border-gray-300 hover:border-gray-400"
+                onClick={() => fileInputRef.current?.click()}
+                className={`border-2 border-dashed rounded-lg transition-colors mb-6 cursor-pointer hover:border-blue-500 hover:bg-blue-50 ${
+                  dragActive 
+                  ? "border-blue-500 bg-blue-50" 
+                  : "border-blue-300 bg-blue-50"
                 }`}
                 onDragEnter={handleDrag}
                 onDragLeave={handleDrag}
                 onDragOver={handleDrag}
                 onDrop={handleDrop}
               >
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  onChange={handleFileInputChange}
-                  className="hidden"
-                  id="file-input"
-                />
-
-                <div className="space-y-4">
-                  <Upload className="h-12 w-12 text-gray-400 mx-auto" />
-                  <div>
-                    <label
-                      htmlFor="file-input"
-                      className="cursor-pointer text-blue-600 hover:text-blue-500 font-medium"
-                    >
-                      Click to upload
-                    </label>
-                    <span className="text-gray-600"> or drag and drop</span>
+                <div className="py-12 px-4">
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    onChange={handleFileInputChange}
+                    className="hidden"
+                    id="file-input"
+                  />
+                  <div className="text-center">
+                    <Upload className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                    <p className="text-lg text-gray-700 mb-2">
+                      Click or drag your files here to convert
+                    </p>
                   </div>
-                  <p className="text-sm text-gray-500">PNG, JPG, GIF up to 10MB each</p>
                 </div>
               </div>
-            </CardContent>
-          </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Output Format</CardTitle>
-              <CardDescription>Choose the format to convert your images to</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <Select value={outputFormat} onValueChange={(value: OutputFormat) => setOutputFormat(value)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {formatOptions.map((option) => (
-                    <SelectItem key={option.value} value={option.value}>
-                      <div>
-                        <div className="font-medium">{option.label}</div>
-                        <div className="text-sm text-gray-500">{option.description}</div>
-                      </div>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-
+              {/* Conversion Queue */}
               {selectedFiles.length > 0 && (
-                <>
-                  <Separator />
-                  <div className="space-y-2">
-                    <div className="flex justify-between text-sm">
-                      <span>Files selected:</span>
-                      <span className="font-medium">{selectedFiles.length}</span>
+                <div className="space-y-4">
+                  {/* Queue Header */}
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h2 className="text-lg font-medium">Conversion Queue</h2>
+                      <p className="text-sm text-gray-500">Track the progress of your image conversions</p>
                     </div>
-                    <div className="flex justify-between text-sm">
-                      <span>Completed:</span>
-                      <span className="font-medium text-green-600">{completedFiles.length}</span>
-                    </div>
-                    {completedFiles.length > 0 && (
-                      <div className="flex justify-between text-sm">
-                        <span>Avg. savings:</span>
-                        <span className="font-medium text-green-600">
-                          {(totalSavings / completedFiles.length).toFixed(1)}%
-                        </span>
+                    <div className="flex items-center gap-4">
+                      <div className="text-sm">
+                        <div className="flex items-center gap-2">
+                          <span className="text-gray-600">Files:</span>
+                          <span className="font-medium">{selectedFiles.length}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-gray-600">Completed:</span>
+                          <span className="font-medium text-green-600">{completedFiles.length}</span>
+                        </div>
                       </div>
-                    )}
+                      <div>
+                        <Select value={outputFormat} onValueChange={(value: OutputFormat) => setOutputFormat(value)}>
+                          <SelectTrigger className="w-[200px] bg-white text-lg">
+                            <div className="font-medium">
+                              {formatOptions.find(f => f.value === outputFormat)?.label}
+                            </div>
+                          </SelectTrigger>
+                          <SelectContent>
+                            {formatOptions.map((option) => (
+                              <SelectItem key={option.value} value={option.value}>
+                                <div>
+                                  <div className="font-medium">{option.label}</div>
+                                  <div className="text-sm text-gray-500">{option.description}</div>
+                                </div>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <Button
+                        onClick={handleConvertAll}
+                        disabled={isConverting}
+                        className="bg-blue-600 hover:bg-blue-700"
+                      >
+                        Convert All
+                      </Button>
+                    </div>
                   </div>
-                  <div className="flex gap-2">
-                    <Button
-                      onClick={handleConvertAll}
-                      disabled={isConverting}
-                      className="flex-1 bg-blue-600 hover:bg-blue-700"
+
+                  {/* File List */}
+                  {selectedFiles.map((fileItem) => (
+                    <div
+                      key={fileItem.id}
+                      className="flex items-center justify-between px-4 py-3 bg-gray-50 rounded-lg"
                     >
-                      {isConverting ? "Converting..." : `Convert All to ${outputFormat.toUpperCase()}`}
-                    </Button>
-                    <Button variant="outline" size="icon" onClick={resetConverter}>
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-
-        {error && (
-          <Alert className="mb-6 border-red-200 bg-red-50">
-            <AlertCircle className="h-4 w-4 text-red-600" />
-            <AlertDescription className="text-red-800">{error}</AlertDescription>
-          </Alert>
-        )}
-
-        {selectedFiles.length > 0 && (
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle>Conversion Queue</CardTitle>
-                  <CardDescription>Track the progress of your image conversions</CardDescription>
-                </div>
-                {completedFiles.length > 0 && (
-                  <Button onClick={handleDownloadAll} variant="outline">
-                    <Download className="h-4 w-4 mr-2" />
-                    Download All ({completedFiles.length})
-                  </Button>
-                )}
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                {selectedFiles.map((fileItem) => (
-                  <div key={fileItem.id} className="border rounded-lg p-4">
-                    <div className="flex items-center justify-between mb-2">
                       <div className="flex items-center gap-3">
-                        <FileImage className="h-5 w-5 text-gray-500" />
+                        <div className="bg-blue-100 p-2 rounded-lg">
+                          <FileImage className="h-5 w-5 text-blue-600" />
+                        </div>
                         <div>
-                          <p className="font-medium text-sm">{fileItem.file.name}</p>
+                          <p className="font-medium text-sm">
+                            {getOutputFileName(fileItem.file.name, outputFormat)}
+                          </p>
                           <p className="text-xs text-gray-500">{formatFileSize(fileItem.file.size)}</p>
                         </div>
                       </div>
-                      <div className="flex items-center gap-2">
-                        {fileItem.status === "completed" && fileItem.result && (
+                      
+                      <div className="flex items-center gap-3">
+                        {fileItem.status === "completed" && (
                           <>
-                            <Badge className="bg-green-100 text-green-800 hover:bg-green-100">
-                              -{fileItem.result.compressionRatio.toFixed(1)}%
-                            </Badge>
-                            <Button size="sm" onClick={() => handleDownload(fileItem)}>
-                              <Download className="h-3 w-3 mr-1" />
-                              Download
-                            </Button>
+                            <span className="text-green-600 flex items-center gap-1">
+                              <Check className="h-4 w-4" />
+                              Converted
+                            </span>
+                            <button
+                              onClick={() => handleDownload(fileItem)}
+                              className="p-2 hover:bg-gray-100 rounded-full"
+                            >
+                              <Download className="h-5 w-5 text-gray-600" />
+                            </button>
                           </>
                         )}
-                        {fileItem.status === "error" && <Badge variant="destructive">Error</Badge>}
+                        {fileItem.status === "converting" && (
+                          <div className="flex items-center gap-2 text-gray-600">
+                            <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                              <circle
+                                className="opacity-25"
+                                cx="12"
+                                cy="12"
+                                r="10"
+                                stroke="currentColor"
+                                strokeWidth="4"
+                                fill="none"
+                              />
+                              <path
+                                className="opacity-75"
+                                fill="currentColor"
+                                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                              />
+                            </svg>
+                            Converting...
+                          </div>
+                        )}
                         {fileItem.status === "pending" && (
-                          <Button variant="ghost" size="sm" onClick={() => removeFile(fileItem.id)}>
-                            <X className="h-4 w-4" />
-                          </Button>
+                          <button
+                            onClick={() => removeFile(fileItem.id)}
+                            className="p-2 hover:bg-gray-100 rounded-full"
+                          >
+                            <X className="h-4 w-4 text-gray-500" />
+                          </button>
                         )}
                       </div>
                     </div>
+                  ))}
 
-                    {fileItem.status === "converting" && (
-                      <div className="space-y-2">
-                        <Progress value={fileItem.progress} className="w-full" />
-                        <p className="text-xs text-center text-gray-600">Converting...</p>
-                      </div>
-                    )}
-
-                    {fileItem.status === "completed" && fileItem.result && (
-                      <div className="mt-3 flex justify-center">
-                        <img
-                          src={fileItem.result.url || "/placeholder.svg"}
-                          alt={`Converted ${fileItem.file.name}`}
-                          className="max-w-32 max-h-32 rounded border object-cover"
-                        />
-                      </div>
-                    )}
-
-                    {fileItem.status === "error" && <p className="text-sm text-red-600 mt-2">{fileItem.error}</p>}
+                  {/* Footer */}
+                  <div className="flex items-center justify-between pt-4">
+                    <p className="text-sm text-gray-500">
+                      {completedFiles.length} of {selectedFiles.length} files completed
+                    </p>
+                    <Button
+                      onClick={handleDownloadAll}
+                      disabled={completedFiles.length === 0}
+                      className="bg-black text-white hover:bg-gray-900 gap-2"
+                    >
+                      <Download className="h-4 w-4" />
+                      Download All
+                    </Button>
                   </div>
-                ))}
-              </div>
-            </CardContent>
+                </div>
+              )}
+
+              {error && (
+                <Alert className="mt-4 border-red-200 bg-red-50">
+                  <AlertCircle className="h-4 w-4 text-red-600" />
+                  <AlertDescription className="text-red-800">{error}</AlertDescription>
+                </Alert>
+              )}
+            </div>
           </Card>
-        )}
-      </div>
+        </div>
+      </main>
+
+      <RightPanel historyItems={dummyHistoryItems} />
     </div>
   )
 }
