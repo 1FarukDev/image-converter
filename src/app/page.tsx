@@ -75,7 +75,9 @@ export default function MultiFormatConverter() {
         canvas.toBlob(
           (blob) => {
             if (blob) {
-              resolve(blob)
+              // Create a new blob with the correct MIME type
+              const convertedBlob = new Blob([blob], { type: mimeType })
+              resolve(convertedBlob)
             } else {
               reject(new Error("Conversion failed"))
             }
@@ -96,21 +98,10 @@ export default function MultiFormatConverter() {
 
   const handleFilesSelect = useCallback((files: FileList) => {
     const validFiles: FileItem[] = []
-    const errors: string[] = []
 
     Array.from(files).forEach((file) => {
       if (!file.type.startsWith("image/")) {
-        errors.push(`${file.name} is not a valid image file`)
-        return
-      }
-
-      // Check if file already exists
-      const isDuplicate = selectedFiles.some(
-        existingFile => existingFile.file.name === file.name
-      )
-
-      if (isDuplicate) {
-        errors.push(`${file.name} is already in the queue`)
+        setError(`${file.name} is not a valid image file`)
         return
       }
 
@@ -122,16 +113,9 @@ export default function MultiFormatConverter() {
       validFiles.push(fileItem)
     })
 
-    if (errors.length > 0) {
-      setError(errors.join(", "))
-    } else {
-      setError(null)
-    }
-
-    if (validFiles.length > 0) {
-      setSelectedFiles(prev => [...prev, ...validFiles])
-    }
-  }, [selectedFiles])
+    setSelectedFiles((prev) => [...prev, ...validFiles])
+    setError(null)
+  }, [])
 
   const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files
@@ -164,7 +148,7 @@ export default function MultiFormatConverter() {
     [handleFilesSelect],
   )
 
-  const removeFile = useCallback((id: string) => {
+  const removeFile = (id: string) => {
     setSelectedFiles(prev => {
       const fileToRemove = prev.find(f => f.id === id)
       if (fileToRemove?.result) {
@@ -172,40 +156,33 @@ export default function MultiFormatConverter() {
       }
       return prev.filter(f => f.id !== id)
     })
-  }, [])
+  }
 
   const handleConvertAll = async () => {
     if (isConverting) return
     setIsConverting(true)
     setError(null)
 
-    try {
-      const pendingFiles = selectedFiles.filter(f => f.status !== "completed")
-      const updatedFiles = [...selectedFiles]
-      
-      for (const fileItem of pendingFiles) {
-        const fileIndex = updatedFiles.findIndex(f => f.id === fileItem.id)
-        if (fileIndex === -1) continue
+    const updatedFiles = [...selectedFiles]
+    
+    for (const fileItem of updatedFiles) {
+      if (fileItem.status === "completed") continue
 
-        try {
-          updatedFiles[fileIndex].status = "converting"
-          setSelectedFiles([...updatedFiles])
-
-          const result = await convertImage(fileItem.file, outputFormat)
-          updatedFiles[fileIndex].result = result
-          updatedFiles[fileIndex].status = "completed"
-        } catch (err) {
-          updatedFiles[fileIndex].error = err instanceof Error ? err.message : "Conversion failed"
-          updatedFiles[fileIndex].status = "error"
-        }
+      try {
+        fileItem.status = "converting"
         setSelectedFiles([...updatedFiles])
+
+        const result = await convertImage(fileItem.file, outputFormat)
+        fileItem.result = result
+        fileItem.status = "completed"
+      } catch (err) {
+        fileItem.error = err instanceof Error ? err.message : "Conversion failed"
+        fileItem.status = "error"
       }
-    } catch (error) {
-      console.error("Conversion failed:", error)
-      setError("Failed to process conversions")
-    } finally {
-      setIsConverting(false)
+      setSelectedFiles([...updatedFiles])
     }
+
+    setIsConverting(false)
   }
 
   const handleDownload = async (fileItem: FileItem) => {
@@ -368,11 +345,7 @@ export default function MultiFormatConverter() {
                   <div className="flex items-center gap-3">
                     <FileImage className="w-8 h-8 text-blue-500" />
                     <div>
-                      <p className="font-medium">
-                        {fileItem.status === "completed" 
-                          ? getOutputFileName(fileItem.file.name, outputFormat)
-                          : fileItem.file.name}
-                      </p>
+                      <p className="font-medium">{fileItem.file.name}</p>
                       <p className="text-sm text-gray-500">
                         {formatFileSize(fileItem.file.size)}
                       </p>
