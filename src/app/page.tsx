@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select"
-import { Upload, Download, AlertCircle, X, FileImage, MoreVertical, Check } from "lucide-react"
+import { Upload, Download, AlertCircle, X, FileImage, Check } from "lucide-react"
 import { Sidebar } from "@/components/ui/sidebar"
 import { RightPanel } from "@/components/ui/right-panel"
 
@@ -19,15 +19,6 @@ interface FileItem {
 }
 
 type OutputFormat = "webp" | "avif" | "jpeg" | "png"
-
-const dummyHistoryItems = [
-  { name: "Illustr_3485.jpg", size: "3.5 Mb", type: "jpg" as const },
-  { name: "img2045.png", size: "2.1 Mb", type: "png" as const },
-  { name: "icon24.svg", size: "258 Kb", type: "svg" as const },
-  { name: "article.doc", size: "459 Kb", type: "doc" as const },
-  { name: "present19.pdf", size: "3.5 Mb", type: "pdf" as const },
-  { name: "photo1.jpg", size: "7.8 Mb", type: "jpg" as const },
-]
 
 const formatOptions = [
   { value: "webp" as OutputFormat, label: "WebP", description: "Best compression, wide support" },
@@ -199,7 +190,8 @@ export default function MultiFormatConverter() {
     }
     
     try {
-      const blobCopy = new Blob([fileItem.result], { type: `image/${outputFormat}` })
+      const mimeType = outputFormat === 'jpeg' ? 'image/jpeg' : `image/${outputFormat}`
+      const blobCopy = new Blob([fileItem.result], { type: mimeType })
       const url = URL.createObjectURL(blobCopy)
       const a = document.createElement('a')
       a.href = url
@@ -227,7 +219,8 @@ export default function MultiFormatConverter() {
         
         for (const fileItem of completedFiles) {
           if (fileItem.result) {
-            const blobCopy = new Blob([fileItem.result], { type: `image/${outputFormat}` })
+            const mimeType = outputFormat === 'jpeg' ? 'image/jpeg' : `image/${outputFormat}`
+            const blobCopy = new Blob([fileItem.result], { type: mimeType })
             const fileName = getOutputFileName(fileItem.file.name, outputFormat)
             zip.file(fileName, blobCopy)
           }
@@ -350,7 +343,11 @@ export default function MultiFormatConverter() {
                   <div className="flex items-center gap-3">
                     <FileImage className="w-8 h-8 text-blue-500" />
                     <div>
-                      <p className="font-medium">{fileItem.file.name}</p>
+                      <p className="font-medium">
+                        {fileItem.status === "completed" 
+                          ? getOutputFileName(fileItem.file.name, outputFormat)
+                          : fileItem.file.name}
+                      </p>
                       <p className="text-sm text-gray-500">
                         {formatFileSize(fileItem.file.size)}
                       </p>
