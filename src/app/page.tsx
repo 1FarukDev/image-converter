@@ -8,7 +8,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select"
 import { Upload, Download, AlertCircle, X, FileImage, Check } from "lucide-react"
 import { Sidebar } from "@/components/ui/sidebar"
-import { RightPanel } from "@/components/ui/right-panel"
+import { RightPanel, HistoryItem } from "@/components/ui/right-panel"
 
 interface FileItem {
   id: string
@@ -46,6 +46,7 @@ export default function MultiFormatConverter() {
   const [isConverting, setIsConverting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [dragActive, setDragActive] = useState(false)
+  const [history, setHistory] = useState<HistoryItem[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const completedFiles = selectedFiles.filter(f => f.status === "completed")
@@ -150,14 +151,62 @@ export default function MultiFormatConverter() {
     [handleFilesSelect],
   )
 
-  const removeFile = (id: string) => {
-    setSelectedFiles(prev => {
-      const fileToRemove = prev.find(f => f.id === id)
-      if (fileToRemove?.result) {
-        URL.revokeObjectURL(URL.createObjectURL(fileToRemove.result))
+  const addToHistory = useCallback((fileItem: FileItem) => {
+    if (fileItem.status !== "completed" || !fileItem.result) return
+
+    const historyItem: HistoryItem = {
+      id: fileItem.id,
+      originalName: fileItem.file.name,
+      convertedName: getOutputFileName(fileItem.file.name, outputFormat),
+      originalSize: formatFileSize(fileItem.file.size),
+      convertedSize: formatFileSize(fileItem.result.size),
+      format: outputFormat.toUpperCase(),
+      timestamp: new Date(),
+      downloadUrl: URL.createObjectURL(fileItem.result)
+    }
+
+    setHistory(prev => [historyItem, ...prev])
+  }, [outputFormat])
+
+  const handleHistoryDownload = useCallback((item: HistoryItem) => {
+    if (!item.downloadUrl) return
+
+    const a = document.createElement('a')
+    a.href = item.downloadUrl
+    a.download = item.convertedName
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+  }, [])
+
+  const handleHistoryDelete = useCallback((id: string) => {
+    setHistory(prev => {
+      const itemToRemove = prev.find(item => item.id === id)
+      if (itemToRemove?.downloadUrl) {
+        URL.revokeObjectURL(itemToRemove.downloadUrl)
       }
-      return prev.filter(f => f.id !== id)
+      return prev.filter(item => item.id !== id)
     })
+  }, [])
+
+  const handleConvertSingle = async (fileItem: FileItem) => {
+    if (fileItem.status === "converting" || fileItem.status === "completed") return
+    setError(null)
+
+    try {
+      fileItem.status = "converting"
+      setSelectedFiles([...selectedFiles])
+
+      const result = await convertImage(fileItem.file, outputFormat)
+      fileItem.result = result
+      fileItem.status = "completed"
+      setSelectedFiles([...selectedFiles])
+      addToHistory(fileItem)
+    } catch (err) {
+      fileItem.error = err instanceof Error ? err.message : "Conversion failed"
+      fileItem.status = "error"
+      setSelectedFiles([...selectedFiles])
+    }
   }
 
   const handleConvertAll = async () => {
@@ -177,6 +226,7 @@ export default function MultiFormatConverter() {
         const result = await convertImage(fileItem.file, outputFormat)
         fileItem.result = result
         fileItem.status = "completed"
+        addToHistory(fileItem)
       } catch (err) {
         fileItem.error = err instanceof Error ? err.message : "Conversion failed"
         fileItem.status = "error"
@@ -249,22 +299,14 @@ export default function MultiFormatConverter() {
     }
   }
 
-  const handleConvertSingle = async (fileItem: FileItem) => {
-    if (fileItem.status === "converting" || fileItem.status === "completed") return
-    setError(null)
-
-    try {
-      fileItem.status = "converting"
-      setSelectedFiles([...selectedFiles])
-
-      const result = await convertImage(fileItem.file, outputFormat)
-      fileItem.result = result
-      fileItem.status = "completed"
-    } catch (err) {
-      fileItem.error = err instanceof Error ? err.message : "Conversion failed"
-      fileItem.status = "error"
-    }
-    setSelectedFiles([...selectedFiles])
+  const removeFile = (id: string) => {
+    setSelectedFiles(prev => {
+      const fileToRemove = prev.find(f => f.id === id)
+      if (fileToRemove?.result) {
+        URL.revokeObjectURL(URL.createObjectURL(fileToRemove.result))
+      }
+      return prev.filter(f => f.id !== id)
+    })
   }
 
   return (
@@ -435,7 +477,11 @@ export default function MultiFormatConverter() {
           </div>
         )}
       </main>
-      <RightPanel />
+      <RightPanel 
+        historyItems={history}
+        onDownload={handleHistoryDownload}
+        onDelete={handleHistoryDelete}
+      />
     </div>
   )
 }

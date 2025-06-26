@@ -1,92 +1,87 @@
+import { FileImage, Download, Trash2 } from "lucide-react"
 import { Button } from "./button"
-import { Card } from "./card"
-import { FileIcon, ImageIcon, FileTextIcon } from "lucide-react"
+import { formatDistanceToNow } from "date-fns"
 
-interface HistoryItem {
-  name: string
-  size: string
-  type: "jpg" | "png" | "svg" | "doc" | "pdf"
+export interface HistoryItem {
+  id: string
+  originalName: string
+  convertedName: string
+  originalSize: string
+  convertedSize: string
+  format: string
+  timestamp: Date
+  downloadUrl?: string
 }
 
 interface RightPanelProps {
-  historyItems?: HistoryItem[]
+  historyItems: HistoryItem[]
+  onDownload: (item: HistoryItem) => void
+  onDelete: (id: string) => void
 }
 
-const getFileIcon = (type: HistoryItem["type"]) => {
-  switch (type) {
-    case "jpg":
-    case "png":
-      return ImageIcon
-    case "svg":
-      return FileIcon
-    default:
-      return FileTextIcon
-  }
-}
-
-const getFileColor = (type: HistoryItem["type"]) => {
-  switch (type) {
-    case "jpg":
-      return "text-blue-500"
-    case "png":
-      return "text-yellow-500"
-    case "svg":
-      return "text-green-500"
-    case "doc":
-      return "text-purple-500"
-    case "pdf":
-      return "text-red-500"
-    default:
-      return "text-gray-500"
-  }
-}
-
-export function RightPanel({ historyItems = [] }: RightPanelProps) {
+export function RightPanel({ historyItems, onDownload, onDelete }: RightPanelProps) {
   return (
-    <div className="w-80 h-screen p-4 space-y-6">
-      {/* AI Converter Card */}
-      <Card className="bg-gradient-to-br from-blue-600 to-indigo-600 text-white p-6">
-        <div className="inline-block bg-white/20 rounded-lg px-3 py-1 text-sm mb-4">
-          New feature
+    <div className="w-80 h-screen border-l border-gray-200 bg-white p-6 overflow-auto">
+      <h2 className="text-2xl font-bold mb-6">History</h2>
+      
+      {historyItems.length === 0 ? (
+        <div className="text-center text-gray-500 mt-8">
+          <FileImage className="w-12 h-12 mx-auto mb-4 opacity-50" />
+          <p>No conversion history yet</p>
+          <p className="text-sm">Converted files will appear here</p>
         </div>
-        <h3 className="text-2xl font-bold mb-2">AI Converter</h3>
-        <p className="text-white/80 mb-6">
-          Vectorize your images with AI
-          <br />
-          Extract layers from PDF
-        </p>
-        <Button variant="secondary" className="w-full bg-white text-blue-600 hover:bg-white/90">
-          Try Now
-        </Button>
-      </Card>
-
-      {/* History Section */}
-      <div>
-        <h3 className="font-medium mb-4">History</h3>
-        <div className="space-y-2">
-          {historyItems.map((item, index) => {
-            const Icon = getFileIcon(item.type)
-            return (
-              <div key={index} className="flex items-center justify-between p-2 hover:bg-gray-50 rounded-lg">
-                <div className="flex items-center gap-3">
-                  <div className={`p-2 rounded-lg bg-gray-100 ${getFileColor(item.type)}`}>
-                    <Icon className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium">{item.name}</p>
-                    <p className="text-xs text-gray-500">{item.size}</p>
-                  </div>
+      ) : (
+        <div className="space-y-4">
+          {historyItems.map((item) => (
+            <div
+              key={item.id}
+              className="p-4 rounded-lg border border-gray-200 hover:border-gray-300 transition-colors"
+            >
+              <div className="flex items-start justify-between mb-2">
+                <div>
+                  <p className="font-medium text-sm truncate" title={item.convertedName}>
+                    {item.convertedName}
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    {formatDistanceToNow(item.timestamp, { addSuffix: true })}
+                  </p>
                 </div>
-                <button className="text-gray-400 hover:text-gray-600">
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
-                  </svg>
-                </button>
+                <div className="flex items-center gap-2">
+                  {item.downloadUrl && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8"
+                      onClick={() => onDownload(item)}
+                    >
+                      <Download className="h-4 w-4" />
+                    </Button>
+                  )}
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 text-red-600 hover:text-red-700 hover:bg-red-50"
+                    onClick={() => onDelete(item.id)}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
               </div>
-            )
-          })}
+              
+              <div className="text-xs text-gray-500 space-y-1">
+                <div className="flex justify-between">
+                  <span>Original:</span>
+                  <span>{item.originalSize}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Converted ({item.format}):</span>
+                  <span>{item.convertedSize}</span>
+                </div>
+              </div>
+            </div>
+          ))}
         </div>
-      </div>
+      )}
     </div>
   )
 } 
