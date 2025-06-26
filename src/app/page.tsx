@@ -246,6 +246,24 @@ export default function MultiFormatConverter() {
     }
   }
 
+  const handleConvertSingle = async (fileItem: FileItem) => {
+    if (fileItem.status === "converting" || fileItem.status === "completed") return
+    setError(null)
+
+    try {
+      fileItem.status = "converting"
+      setSelectedFiles([...selectedFiles])
+
+      const result = await convertImage(fileItem.file, outputFormat)
+      fileItem.result = result
+      fileItem.status = "completed"
+    } catch (err) {
+      fileItem.error = err instanceof Error ? err.message : "Conversion failed"
+      fileItem.status = "error"
+    }
+    setSelectedFiles([...selectedFiles])
+  }
+
   return (
     <div className="flex min-h-screen">
       <Sidebar 
@@ -371,6 +389,16 @@ export default function MultiFormatConverter() {
                     )}
                     {fileItem.status === "error" && (
                       <div className="text-red-600">{fileItem.error}</div>
+                    )}
+                    {fileItem.status === "pending" && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleConvertSingle(fileItem)}
+                        className="mr-2"
+                      >
+                        Convert
+                      </Button>
                     )}
                     <Button
                       variant="ghost"
