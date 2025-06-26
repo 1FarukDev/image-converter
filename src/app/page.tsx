@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { useState, useCallback, useRef } from "react"
+import { useState, useCallback, useRef, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Alert, AlertDescription } from "@/components/ui/alert"
@@ -40,14 +40,61 @@ const formatFileSize = (bytes: number): string => {
   return Number.parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i]
 }
 
+const HISTORY_STORAGE_KEY = 'image_converter_history'
+
+interface StoredHistoryItem {
+  id: string
+  originalName: string
+  convertedName: string
+  originalSize: string
+  convertedSize: string
+  format: string
+  timestamp: string
+  blob?: Blob
+}
+
 export default function MultiFormatConverter() {
   const [selectedFiles, setSelectedFiles] = useState<FileItem[]>([])
   const [outputFormat, setOutputFormat] = useState<OutputFormat>("jpeg")
   const [isConverting, setIsConverting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [dragActive, setDragActive] = useState(false)
-  const [history, setHistory] = useState<HistoryItem[]>([])
+  const [history, setHistory] = useState<HistoryItem[]>(() => {
+    if (typeof window !== 'undefined') {
+      const savedHistory = localStorage.getItem(HISTORY_STORAGE_KEY)
+      if (savedHistory) {
+        try {
+          const parsedHistory = JSON.parse(savedHistory) as StoredHistoryItem[]
+          return parsedHistory.map(item => ({
+            ...item,
+            timestamp: new Date(item.timestamp),
+            downloadUrl: item.blob ? URL.createObjectURL(item.blob) : undefined
+          }))
+        } catch (e) {
+          console.error('Failed to parse history from localStorage:', e)
+          return []
+        }
+      }
+    }
+    return []
+  })
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // Save history to localStorage whenever it changes
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const historyToStore = history.map(item => ({
+        id: item.id,
+        originalName: item.originalName,
+        convertedName: item.convertedName,
+        originalSize: item.originalSize,
+        convertedSize: item.convertedSize,
+        format: item.format,
+        timestamp: item.timestamp.toISOString()
+      }))
+      localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(historyToStore))
+    }
+  }, [history])
 
   const completedFiles = selectedFiles.filter(f => f.status === "completed")
 
@@ -169,7 +216,10 @@ export default function MultiFormatConverter() {
   }, [outputFormat])
 
   const handleHistoryDownload = useCallback((item: HistoryItem) => {
-    if (!item.downloadUrl) return
+    if (!item.downloadUrl) {
+      setError('Download URL not available')
+      return
+    }
 
     const a = document.createElement('a')
     a.href = item.downloadUrl
@@ -187,6 +237,17 @@ export default function MultiFormatConverter() {
       }
       return prev.filter(item => item.id !== id)
     })
+  }, [])
+
+  // Clean up URLs when component unmounts
+  useEffect(() => {
+    return () => {
+      history.forEach(item => {
+        if (item.downloadUrl) {
+          URL.revokeObjectURL(item.downloadUrl)
+        }
+      })
+    }
   }, [])
 
   const handleConvertSingle = async (fileItem: FileItem) => {

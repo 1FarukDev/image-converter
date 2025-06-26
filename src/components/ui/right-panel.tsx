@@ -39,7 +39,7 @@ export function RightPanel({ historyItems, onDownload, onDelete }: RightPanelPro
             >
               <div className="flex items-start justify-between mb-2">
                 <div>
-                  <p className="font-medium text-sm truncate" title={item.convertedName}>
+                  <p className="font-medium text-sm truncate max-w-[180px]" title={item.convertedName}>
                     {item.convertedName}
                   </p>
                   <p className="text-xs text-gray-500">
@@ -47,16 +47,15 @@ export function RightPanel({ historyItems, onDownload, onDelete }: RightPanelPro
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
-                  {item.downloadUrl && (
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8"
-                      onClick={() => onDownload(item)}
-                    >
-                      <Download className="h-4 w-4" />
-                    </Button>
-                  )}
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8"
+                    onClick={() => onDownload(item)}
+                    disabled={!item.downloadUrl}
+                  >
+                    <Download className="h-4 w-4" />
+                  </Button>
                   <Button
                     variant="ghost"
                     size="icon"
