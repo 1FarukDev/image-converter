@@ -96,10 +96,21 @@ export default function MultiFormatConverter() {
 
   const handleFilesSelect = useCallback((files: FileList) => {
     const validFiles: FileItem[] = []
+    const errors: string[] = []
 
     Array.from(files).forEach((file) => {
       if (!file.type.startsWith("image/")) {
-        setError(`${file.name} is not a valid image file`)
+        errors.push(`${file.name} is not a valid image file`)
+        return
+      }
+
+      // Check if file already exists
+      const isDuplicate = selectedFiles.some(
+        existingFile => existingFile.file.name === file.name
+      )
+
+      if (isDuplicate) {
+        errors.push(`${file.name} is already in the queue`)
         return
       }
 
@@ -111,9 +122,16 @@ export default function MultiFormatConverter() {
       validFiles.push(fileItem)
     })
 
-    setSelectedFiles((prev) => [...prev, ...validFiles])
-    setError(null)
-  }, [])
+    if (errors.length > 0) {
+      setError(errors.join(", "))
+    } else {
+      setError(null)
+    }
+
+    if (validFiles.length > 0) {
+      setSelectedFiles(prev => [...prev, ...validFiles])
+    }
+  }, [selectedFiles])
 
   const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files
@@ -146,7 +164,7 @@ export default function MultiFormatConverter() {
     [handleFilesSelect],
   )
 
-  const removeFile = (id: string) => {
+  const removeFile = useCallback((id: string) => {
     setSelectedFiles(prev => {
       const fileToRemove = prev.find(f => f.id === id)
       if (fileToRemove?.result) {
@@ -154,33 +172,40 @@ export default function MultiFormatConverter() {
       }
       return prev.filter(f => f.id !== id)
     })
-  }
+  }, [])
 
   const handleConvertAll = async () => {
     if (isConverting) return
     setIsConverting(true)
     setError(null)
 
-    const updatedFiles = [...selectedFiles]
-    
-    for (const fileItem of updatedFiles) {
-      if (fileItem.status === "completed") continue
+    try {
+      const pendingFiles = selectedFiles.filter(f => f.status !== "completed")
+      const updatedFiles = [...selectedFiles]
+      
+      for (const fileItem of pendingFiles) {
+        const fileIndex = updatedFiles.findIndex(f => f.id === fileItem.id)
+        if (fileIndex === -1) continue
 
-      try {
-        fileItem.status = "converting"
+        try {
+          updatedFiles[fileIndex].status = "converting"
+          setSelectedFiles([...updatedFiles])
+
+          const result = await convertImage(fileItem.file, outputFormat)
+          updatedFiles[fileIndex].result = result
+          updatedFiles[fileIndex].status = "completed"
+        } catch (err) {
+          updatedFiles[fileIndex].error = err instanceof Error ? err.message : "Conversion failed"
+          updatedFiles[fileIndex].status = "error"
+        }
         setSelectedFiles([...updatedFiles])
-
-        const result = await convertImage(fileItem.file, outputFormat)
-        fileItem.result = result
-        fileItem.status = "completed"
-      } catch (err) {
-        fileItem.error = err instanceof Error ? err.message : "Conversion failed"
-        fileItem.status = "error"
       }
-      setSelectedFiles([...updatedFiles])
+    } catch (error) {
+      console.error("Conversion failed:", error)
+      setError("Failed to process conversions")
+    } finally {
+      setIsConverting(false)
     }
-
-    setIsConverting(false)
   }
 
   const handleDownload = async (fileItem: FileItem) => {
