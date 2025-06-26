@@ -28,8 +28,8 @@ const formatOptions = [
 ]
 
 const getOutputFileName = (originalName: string, outputFormat: OutputFormat) => {
-  const nameWithoutExtension = originalName.replace(/\.[^/.]+$/, "")
-  return `${nameWithoutExtension}.${outputFormat.toLowerCase()}`
+  const nameWithoutExtension = originalName.split('.')[0]
+  return `${nameWithoutExtension}.${outputFormat}`
 }
 
 const formatFileSize = (bytes: number): string => {
@@ -75,8 +75,10 @@ export default function MultiFormatConverter() {
         canvas.toBlob(
           (blob) => {
             if (blob) {
-              // Create a new blob with the correct MIME type
-              const convertedBlob = new Blob([blob], { type: mimeType })
+              // Create a new blob with the correct MIME type and extension
+              const convertedBlob = new Blob([blob], { 
+                type: mimeType 
+              })
               resolve(convertedBlob)
             } else {
               reject(new Error("Conversion failed"))
@@ -197,7 +199,8 @@ export default function MultiFormatConverter() {
       const url = URL.createObjectURL(blobCopy)
       const a = document.createElement('a')
       a.href = url
-      a.download = getOutputFileName(fileItem.file.name, outputFormat)
+      const fileName = getOutputFileName(fileItem.file.name, outputFormat)
+      a.download = fileName
       document.body.appendChild(a)
       a.click()
       document.body.removeChild(a)
@@ -363,7 +366,11 @@ export default function MultiFormatConverter() {
                   <div className="flex items-center gap-3">
                     <FileImage className="w-8 h-8 text-blue-500" />
                     <div>
-                      <p className="font-medium">{fileItem.file.name}</p>
+                      <p className="font-medium">
+                        {fileItem.status === "completed" 
+                          ? getOutputFileName(fileItem.file.name, outputFormat)
+                          : fileItem.file.name}
+                      </p>
                       <p className="text-sm text-gray-500">
                         {formatFileSize(fileItem.file.size)}
                       </p>
