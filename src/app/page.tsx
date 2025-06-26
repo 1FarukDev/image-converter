@@ -372,12 +372,7 @@ export default function MultiFormatConverter() {
 
   return (
     <div className="flex min-h-screen">
-      <Sidebar 
-        userName="Guest User"
-        userEmail="guest@example.com"
-        conversionsLeft={5}
-        totalConversions={20}
-      />
+      <Sidebar />
       <main className="flex-1 p-8">
         <div className="mb-8">
           <h1 className="text-4xl font-bold mb-2">Conversion Queue</h1>

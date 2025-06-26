@@ -37,7 +37,7 @@ export function SpaceShooter() {
       y: 0,
       width: 20,
       height: 30,
-      speed: 5,
+      speed: 8,
       lives: 3,
       score: 0
     } as Player,
@@ -199,12 +199,14 @@ export function SpaceShooter() {
 
     const handleKeyDown = (e: KeyboardEvent) => {
       const player = gameStateRef.current.player
+      const moveDistance = e.shiftKey ? player.speed * 1.5 : player.speed
+      
       switch (e.key) {
         case 'ArrowLeft':
-          player.x = Math.max(0, player.x - player.speed)
+          player.x = Math.max(0, player.x - moveDistance)
           break
         case 'ArrowRight':
-          player.x = Math.min(canvas.width - player.width, player.x + player.speed)
+          player.x = Math.min(canvas.width - player.width, player.x + moveDistance)
           break
         case ' ':
           shoot()
@@ -228,7 +230,7 @@ export function SpaceShooter() {
         y: 0,
         width: 20,
         height: 30,
-        speed: 5,
+        speed: 8,
         lives: 3,
         score: 0
       },
@@ -245,18 +247,23 @@ export function SpaceShooter() {
 
   return (
     <div className="flex flex-col h-full bg-slate-50">
-      <div className="p-4 border-b border-gray-200">
-        <div className="flex items-center justify-between mb-4">
+      <div className="p-3 border-b border-gray-200">
+        <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Rocket className="w-6 h-6 text-blue-600" />
-            <h2 className="text-lg font-semibold">Space Shooter</h2>
+            <Rocket className="w-5 h-5 text-blue-600" />
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium">Score: {score}</span>
+                <span className="text-sm font-medium">Lives: {lives}</span>
+              </div>
+            </div>
           </div>
           {gameStarted && !gameOver && (
             <Button
               variant="ghost"
               size="icon"
               onClick={() => setIsPaused(!isPaused)}
-              className="h-8 w-8"
+              className="h-7 w-7"
             >
               {isPaused ? (
                 <Play className="h-4 w-4" />
@@ -266,17 +273,13 @@ export function SpaceShooter() {
             </Button>
           )}
         </div>
-        <div className="flex justify-between text-sm">
-          <span>Score: {score}</span>
-          <span>Lives: {lives}</span>
-        </div>
       </div>
 
       <div className="relative flex-1">
         <canvas
           ref={canvasRef}
           width={220}
-          height={600}
+          height={400}
           className="absolute inset-0"
         />
         
@@ -285,13 +288,14 @@ export function SpaceShooter() {
             <div className="text-center">
               {gameOver && (
                 <>
-                  <h3 className="text-xl font-bold mb-2">Game Over!</h3>
-                  <p className="text-gray-600 mb-4">Final Score: {score}</p>
+                  <h3 className="text-lg font-bold mb-1">Game Over!</h3>
+                  <p className="text-sm text-gray-600 mb-3">Final Score: {score}</p>
                 </>
               )}
               <Button
                 onClick={handleRestart}
                 className="flex items-center gap-2"
+                size="sm"
               >
                 {gameOver ? (
                   <>
@@ -310,11 +314,9 @@ export function SpaceShooter() {
         )}
       </div>
 
-      <div className="p-4 border-t border-gray-200">
-        <div className="text-xs text-gray-500">
-          <p className="mb-1">Controls:</p>
-          <p>← → Arrow keys to move</p>
-          <p>Space to shoot</p>
+      <div className="p-2 border-t border-gray-200">
+        <div className="text-xs text-gray-500 text-center">
+          ← → Move • Hold Shift to Boost • Space to shoot
         </div>
       </div>
     </div>
