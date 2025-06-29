@@ -58,7 +58,7 @@ export function SpaceShooter() {
 
     // Initialize player position
     gameStateRef.current.player.x = canvas.width / 2 - gameStateRef.current.player.width / 2
-    gameStateRef.current.player.y = canvas.height - 50
+    gameStateRef.current.player.y = canvas.height - 40
 
     const spawnEnemy = () => {
       const now = Date.now()
@@ -162,31 +162,58 @@ export function SpaceShooter() {
     }
 
     const draw = () => {
-      ctx.fillStyle = '#f8fafc' // Matches the app's background
+      // Space background
+      ctx.fillStyle = '#000000'
       ctx.fillRect(0, 0, canvas.width, canvas.height)
+      
+      // Add stars
+      ctx.fillStyle = '#ffffff'
+      for (let i = 0; i < 40; i++) {
+        const x = (i * 31) % canvas.width
+        const y = (i * 19 + Date.now() * 0.005) % canvas.height
+        const size = Math.random() > 0.8 ? 2 : 1
+        ctx.fillRect(x, y, size, size)
+      }
 
-      // Draw player
-      ctx.fillStyle = '#3b82f6' // Blue to match the app's theme
+      // Draw player (spaceship)
+      ctx.fillStyle = '#fb923c' // Orange to match theme
       ctx.fillRect(
         gameStateRef.current.player.x,
         gameStateRef.current.player.y,
         gameStateRef.current.player.width,
         gameStateRef.current.player.height
       )
+      
+      // Player glow effect
+      ctx.shadowColor = '#fb923c'
+      ctx.shadowBlur = 10
+      ctx.fillRect(
+        gameStateRef.current.player.x,
+        gameStateRef.current.player.y,
+        gameStateRef.current.player.width,
+        gameStateRef.current.player.height
+      )
+      ctx.shadowBlur = 0
 
       // Draw bullets
-      ctx.fillStyle = '#2563eb'
+      ctx.fillStyle = '#fbbf24' // Yellow bullets
       gameStateRef.current.bullets.forEach(bullet => {
         if (bullet.active) {
+          ctx.shadowColor = '#fbbf24'
+          ctx.shadowBlur = 5
           ctx.fillRect(bullet.x, bullet.y, bullet.width, bullet.height)
+          ctx.shadowBlur = 0
         }
       })
 
       // Draw enemies
-      ctx.fillStyle = '#ef4444'
+      ctx.fillStyle = '#ef4444' // Red enemies
       gameStateRef.current.enemies.forEach(enemy => {
         if (enemy.active) {
+          ctx.shadowColor = '#ef4444'
+          ctx.shadowBlur = 8
           ctx.fillRect(enemy.x, enemy.y, enemy.width, enemy.height)
+          ctx.shadowBlur = 0
         }
       })
     }
@@ -246,15 +273,15 @@ export function SpaceShooter() {
   }
 
   return (
-    <div className="flex flex-col h-full bg-slate-50">
-      <div className="p-3 border-b border-gray-200">
+    <div className="flex flex-col h-full bg-black">
+      <div className="p-3 bg-gray-800 border-b border-gray-700">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Rocket className="w-5 h-5 text-blue-600" />
+            <Rocket className="w-5 h-5 text-orange-400" />
             <div>
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-medium">Score: {score}</span>
-                <span className="text-sm font-medium">Lives: {lives}</span>
+              <div className="flex items-center gap-3">
+                <span className="text-sm font-bold text-white">Score: <span className="text-orange-400">{score}</span></span>
+                <span className="text-sm font-bold text-white">Lives: <span className="text-red-400">{lives}</span></span>
               </div>
             </div>
           </div>
@@ -263,7 +290,7 @@ export function SpaceShooter() {
               variant="ghost"
               size="icon"
               onClick={() => setIsPaused(!isPaused)}
-              className="h-7 w-7"
+              className="h-7 w-7 text-white hover:bg-gray-700"
             >
               {isPaused ? (
                 <Play className="h-4 w-4" />
@@ -275,26 +302,27 @@ export function SpaceShooter() {
         </div>
       </div>
 
-      <div className="relative flex-1">
+      <div className="relative flex-1 bg-gradient-to-b from-gray-900 via-black to-gray-900 flex items-center justify-center">
         <canvas
           ref={canvasRef}
-          width={220}
-          height={400}
-          className="absolute inset-0"
+          width={240}
+          height={320}
+          className="border border-gray-700 rounded-lg"
+          style={{ imageRendering: 'pixelated' }}
         />
         
         {(!gameStarted || gameOver) && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-50/80">
-            <div className="text-center">
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 backdrop-blur-sm">
+            <div className="text-center bg-gray-800 p-6 rounded-xl border border-gray-700">
               {gameOver && (
                 <>
-                  <h3 className="text-lg font-bold mb-1">Game Over!</h3>
-                  <p className="text-sm text-gray-600 mb-3">Final Score: {score}</p>
+                  <h3 className="text-xl font-heading font-bold mb-2 text-white">Game Over!</h3>
+                  <p className="text-sm text-gray-300 mb-4">Final Score: <span className="text-orange-400 font-bold">{score}</span></p>
                 </>
               )}
               <Button
                 onClick={handleRestart}
-                className="flex items-center gap-2"
+                className="flex items-center gap-2 bg-orange-soft hover:bg-orange-600 text-white font-semibold"
                 size="sm"
               >
                 {gameOver ? (
@@ -314,9 +342,9 @@ export function SpaceShooter() {
         )}
       </div>
 
-      <div className="p-2 border-t border-gray-200">
-        <div className="text-xs text-gray-500 text-center">
-          ← → Move • Hold Shift to Boost • Space to shoot
+      <div className="p-2 bg-gray-800 border-t border-gray-700">
+        <div className="text-xs text-gray-400 text-center font-medium">
+          ← → Move • Hold Shift to Boost • Space to Shoot
         </div>
       </div>
     </div>
